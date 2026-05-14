@@ -1,7 +1,7 @@
 {
   "name": "glorious-security-bot",
   "version": "1.0.0",
-  "description": "Glorious Security Discord Bot",
+  "description": "Quantum Security Discord Bot",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
