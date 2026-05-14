@@ -1,4 +1,4 @@
-console.log(">>> GLORIOUS SECURITY BOT LOADED <<<");
+console.log(">>> QUANTUM SECURITY BOT LOADED <<<");
 
 const {
   Client, GatewayIntentBits, Partials, Collection,
@@ -12,7 +12,7 @@ const fs = require("fs");
 //  KEEP ALIVE (fake port για Render)
 // ══════════════════════════════════════════════════════════════
 const app = express();
-app.get("/", (_, res) => res.send("🔒 Glorious Security Bot — Online"));
+app.get("/", (_, res) => res.send("🔒 Quantum Security Bot — Online"));
 app.get("/health", (_, res) => res.json({ status: "ok", uptime: process.uptime() }));
 app.listen(10000, "0.0.0.0", () => console.log("Keep-alive on :10000"));
 
@@ -20,7 +20,7 @@ app.listen(10000, "0.0.0.0", () => console.log("Keep-alive on :10000"));
 //  BOT INIT
 // ══════════════════════════════════════════════════════════════
 const TOKEN    = process.env.TOKEN;
-const GUILD_ID = process.env.GUILD_ID || "1490079978300117212";
+const GUILD_ID = process.env.GUILD_ID || "1483104426037219371";
 
 const client = new Client({
   intents: [
@@ -40,7 +40,7 @@ const client = new Client({
 // ══════════════════════════════════════════════════════════════
 //  ROLE / CHANNEL IDs
 // ══════════════════════════════════════════════════════════════
-const FOUNDER_ROLE_ID             = process.env.CEO_ROLE_ID   || "1483104426465165421";
+const FOUNDER_ROLE_ID             = process.env.FOUNDER_ROLE_ID   || "1483104426465165421";
 const SECURITY_LOG_CHANNEL_ID = process.env.SECURITY_LOG  || "1504539632044343597";
 
 const SERVER_NAME          = "Quantum Roleplay";
@@ -93,8 +93,8 @@ function logEvent(type, data) {
 // ══════════════════════════════════════════════════════════════
 //  PERMISSION HELPERS
 // ══════════════════════════════════════════════════════════════
-const isCeo          = m => m?.roles?.cache?.has(CEO_ROLE_ID);
-const isOwnerOrAbove = m => m?.roles?.cache?.has(CEO_ROLE_ID) || m?.roles?.cache?.has(OWNER_ROLE_ID);
+const isFounder          = m => m?.roles?.cache?.has(FOUNTER_ROLE_ID);
+const isOwnerOrAbove = m => m?.roles?.cache?.has(FOUNDER_ROLE_ID) || m?.roles?.cache?.has(OWNER_ROLE_ID);
 const moduleEnabled  = name => !config.disabled_modules?.includes(name);
 
 // ══════════════════════════════════════════════════════════════
@@ -315,9 +315,9 @@ client.on("messageCreate", async message => {
   const command = args.shift().toLowerCase();
 
   // ── CEO ONLY ─────────────────────────────────────────────
-  if (!isCeo(member)) {
+  if (!isFounder(member)) {
     if (["secpanel","secconfig","secdisable","secenable","secstatus","seclogs","secwhitelist","secunwhitelist"].includes(command)) {
-      return message.reply("❌ CEO only.");
+      return message.reply("❌ FOUNDER only.");
     }
     return;
   }
@@ -343,7 +343,7 @@ client.on("messageCreate", async message => {
     const e = new EmbedBuilder()
       .setTitle("🔒 Security Control Panel")
       .setDescription(
-        `**CEO-only security controls for ${SERVER_NAME}**\n\n` +
+        `**FOUNDER-only security controls for ${SERVER_NAME}**\n\n` +
         `${statusLines}\n\n` +
         `━━━━━━━━━━━━━━━━━━━━━━━\n` +
         `**Current Settings:**\n` +
@@ -356,7 +356,7 @@ client.on("messageCreate", async message => {
       )
       .setColor(0x8B0000)
       .setThumbnail(SERVER_THUMBNAIL_URL)
-      .setFooter({ text: `${SERVER_NAME} • CEO Security Panel` })
+      .setFooter({ text: `${SERVER_NAME} • FOUNDER Security Panel` })
       .setTimestamp();
 
     const row1 = new ActionRowBuilder().addComponents(
@@ -510,30 +510,36 @@ client.on("messageCreate", async message => {
   //  !sechelp
   // ────────────────────────────────────────────────────────
   if (command === "sechelp") {
-    if (!isCeo(member)) return;
+    if (!isfounder(member)) return;
     const e = new EmbedBuilder()
       .setTitle(`🔒 ${SERVER_NAME} — Security Bot Help`).setColor(0x8B0000)
       .setThumbnail(SERVER_THUMBNAIL_URL)
+      
       .addFields(
         { name: "📋 Panels & Status", value:
-          "`!secpanel` — Interactive CEO security panel\n" +
+          "`!secpanel` — Interactive FOUNDER security panel\n" +
           "`!secstatus` — Quick module & config overview\n" +
           "`!seclogs [n]` — Show last n security events", inline: false },
+          
         { name: "⚙️ Configuration", value:
           "`!secconfig` — Show all settings\n" +
           "`!secconfig <key> <value>` — Change a setting\n" +
           "Keys: `alt_age_days` `alt_auto_kick` `link_filter` `token_filter`\n" +
           "`spam_filter` `spam_threshold` `spam_window_secs` `spam_timeout_mins`\n" +
           "`link_timeout_mins` `mass_action_limit` `mass_action_window`", inline: false },
+        
         { name: "🔌 Modules", value:
           "`!secenable <module>` — Enable a module\n" +
           "`!secdisable <module>` — Disable a module\n" +
           "Modules: `alt` `link` `token` `spam` `mass_action` `bot_verify`", inline: false },
+    
+      .setDescription (`---------------------`)
+    
         { name: "🤖 Bot Whitelist", value:
           "`!secwhitelist <botId>` — Skip verification for bot\n" +
           "`!secunwhitelist <botId>` — Remove from whitelist", inline: false },
       )
-      .setFooter({ text: `${SERVER_NAME} • CEO Only` })
+      .setFooter({ text: `${SERVER_NAME} • FOUNDER Only` })
       .setTimestamp();
     return message.reply({ embeds: [e] });
   }
@@ -584,7 +590,7 @@ client.on("interactionCreate", async interaction => {
     }
 
     // ── Security Panel Buttons (CEO only) ─────────────────
-    if (!isCeo(member)) return interaction.reply({ content: "❌ CEO only.", ephemeral: true });
+    if (!isCeo(member)) return interaction.reply({ content: "❌ FOUNDER only.", ephemeral: true });
 
     const toggleMap = {
       sec_toggle_alt:       "alt",
