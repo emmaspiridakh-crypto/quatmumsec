@@ -93,7 +93,7 @@ function logEvent(type, data) {
 // ══════════════════════════════════════════════════════════════
 //  PERMISSION HELPERS
 // ══════════════════════════════════════════════════════════════
-const isFounder          = m => m?.roles?.cache?.has(FOUNTER_ROLE_ID);
+const isFounder          = m => m?.roles?.cache?.has(FOUNDER_ROLE_ID);
 const isOwnerOrAbove = m => m?.roles?.cache?.has(FOUNDER_ROLE_ID) || m?.roles?.cache?.has(OWNER_ROLE_ID);
 const moduleEnabled  = name => !config.disabled_modules?.includes(name);
 
@@ -113,8 +113,8 @@ const pendingBots    = {};
 async function sendSecurityAlert(guild, embed, ping = false) {
   const ch = guild.channels.cache.get(SECURITY_LOG_CHANNEL_ID);
   if (!ch) return;
-  const ceoRole = guild.roles.cache.get(CEO_ROLE_ID);
-  const content = ping && ceoRole ? ceoRole.toString() : null;
+  const founderRole = guild.roles.cache.get(FOUNDER_ROLE_ID);
+  const content = ping && founderRole ? founderRole.toString() : null;
   await ch.send({ content, embeds: [embed] }).catch(() => {});
 }
 
@@ -589,7 +589,7 @@ client.on("interactionCreate", async interaction => {
     }
 
     // ── Security Panel Buttons (CEO only) ─────────────────
-    if (!isCeo(member)) return interaction.reply({ content: "❌ FOUNDER only.", ephemeral: true });
+    if (!isFounder(member)) return interaction.reply({ content: "❌ FOUNDER only.", ephemeral: true });
 
     const toggleMap = {
       sec_toggle_alt:       "alt",
