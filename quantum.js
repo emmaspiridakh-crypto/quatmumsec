@@ -40,11 +40,11 @@ const client = new Client({
 // ══════════════════════════════════════════════════════════════
 //  ROLE / CHANNEL IDs
 // ══════════════════════════════════════════════════════════════
-const CEO_ROLE_ID             = process.env.CEO_ROLE_ID   || "1490084094749573151";
-const SECURITY_LOG_CHANNEL_ID = process.env.SECURITY_LOG  || "1502328608805486765";
+const FOUNDER_ROLE_ID             = process.env.CEO_ROLE_ID   || "1483104426465165421";
+const SECURITY_LOG_CHANNEL_ID = process.env.SECURITY_LOG  || "1504539632044343597";
 
-const SERVER_NAME          = "Glorious Shop";
-const SERVER_THUMBNAIL_URL = "https://i.imgur.com/F6vMnVL.jpeg";
+const SERVER_NAME          = "Quantum Roleplay";
+const SERVER_THUMBNAIL_URL = "https://i.imgur.com/deVGbKX.jpeg";
 
 // ══════════════════════════════════════════════════════════════
 //  DATA FILES
@@ -132,7 +132,7 @@ async function trackMassAction(guild, moderator, actionType) {
   if (banKickTracker[uid].length >= config.mass_action_limit) {
     banKickTracker[uid] = [];
     const mm     = guild.members.cache.get(uid);
-    const exempt = [CEO_ROLE_ID, OWNER_ROLE_ID];
+    const exempt = [FOUNDER_ROLE_ID]
     const isEx   = mm && exempt.some(r => mm.roles.cache.has(r));
     if (mm && !isEx) {
       await mm.timeout(7 * 24 * 60 * 60 * 1000, `Mass ${actionType}`).catch(() => {});
@@ -258,7 +258,7 @@ client.on("messageCreate", async message => {
   // ── Link detection ────────────────────────────────────────
   if (!author.bot && moduleEnabled("link") && config.link_filter && URL_PATTERN.test(message.content)) {
     URL_PATTERN.lastIndex = 0;
-    const exempt = [CEO_ROLE_ID, OWNER_ROLE_ID];
+    const exempt = [FOUNDER_ROLE_ID];
     const isEx   = exempt.some(r => member?.roles.cache.has(r));
     if (!isEx && !member?.permissions.has(PermissionsBitField.Flags.Administrator)) {
       await message.delete().catch(() => {});
