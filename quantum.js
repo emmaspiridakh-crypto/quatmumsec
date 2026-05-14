@@ -532,8 +532,7 @@ client.on("messageCreate", async message => {
           "`!secenable <module>` — Enable a module\n" +
           "`!secdisable <module>` — Disable a module\n" +
           "Modules: `alt` `link` `token` `spam` `mass_action` `bot_verify`", inline: false },
-    
-      .setDescription (`---------------------`)
+
     
         { name: "🤖 Bot Whitelist", value:
           "`!secwhitelist <botId>` — Skip verification for bot\n" +
