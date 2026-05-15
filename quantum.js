@@ -40,8 +40,8 @@ const client = new Client({
 // ══════════════════════════════════════════════════════════════
 //  ROLE / CHANNEL IDs
 // ══════════════════════════════════════════════════════════════
-const FOUNDER_ROLE_ID             = process.env.FOUNDER_ROLE_ID   || "1483104426465165421";
-const SECURITY_LOG_CHANNEL_ID = process.env.SECURITY_LOG  || "1504539632044343597";
+const FOUNDER_ROLE_ID         = process.env.FOUNDER_ROLE_ID || "1483104426465165421";
+const SECURITY_LOG_CHANNEL_ID = process.env.SECURITY_LOG    || "1504539632044343597";
 
 const SERVER_NAME          = "Quantum Roleplay";
 const SERVER_THUMBNAIL_URL = "https://i.imgur.com/deVGbKX.jpeg";
@@ -76,11 +76,15 @@ const DEFAULT_CONFIG = {
   mass_action_limit:   3,
   mass_action_window:  10,
   whitelisted_bots:    [],
+  whitelisted_users:   [],   // ← user IDs που επιτρέπονται να στέλνουν links ΜΟΝΟ
   disabled_modules:    [],   // "alt","link","token","spam","mass_action","bot_verify"
 };
 
 let config       = loadJSON(CONFIG_FILE, DEFAULT_CONFIG);
 let securityData = loadJSON(SECURITY_FILE, { events: [] });
+
+// Migrate παλιά configs χωρίς whitelisted_users
+if (!config.whitelisted_users) { config.whitelisted_users = []; saveJSON(CONFIG_FILE, config); }
 
 function saveConfig() { saveJSON(CONFIG_FILE, config); }
 function logEvent(type, data) {
@@ -93,9 +97,11 @@ function logEvent(type, data) {
 // ══════════════════════════════════════════════════════════════
 //  PERMISSION HELPERS
 // ══════════════════════════════════════════════════════════════
-const isFounder          = m => m?.roles?.cache?.has(FOUNDER_ROLE_ID);
-const isOwnerOrAbove = m => m?.roles?.cache?.has(FOUNDER_ROLE_ID) || m?.roles?.cache?.has(OWNER_ROLE_ID);
-const moduleEnabled  = name => !config.disabled_modules?.includes(name);
+const isFounder     = m => m?.roles?.cache?.has(FOUNDER_ROLE_ID);
+const moduleEnabled = name => !config.disabled_modules?.includes(name);
+
+// Link whitelist: user μπορεί να στέλνει links αλλά ΔΕΝ μπορεί να τρέχει commands
+const isLinkWhitelisted = userId => config.whitelisted_users?.includes(userId);
 
 // ══════════════════════════════════════════════════════════════
 //  PATTERNS
@@ -131,9 +137,8 @@ async function trackMassAction(guild, moderator, actionType) {
   banKickTracker[uid] = banKickTracker[uid].filter(t => now - t < config.mass_action_window);
   if (banKickTracker[uid].length >= config.mass_action_limit) {
     banKickTracker[uid] = [];
-    const mm     = guild.members.cache.get(uid);
-    const exempt = [FOUNDER_ROLE_ID]
-    const isEx   = mm && exempt.some(r => mm.roles.cache.has(r));
+    const mm    = guild.members.cache.get(uid);
+    const isEx  = mm && mm.roles.cache.has(FOUNDER_ROLE_ID);
     if (mm && !isEx) {
       await mm.timeout(7 * 24 * 60 * 60 * 1000, `Mass ${actionType}`).catch(() => {});
       const e = new EmbedBuilder()
@@ -183,12 +188,11 @@ client.on("guildMemberAdd", async member => {
 
     const sl = guild.channels.cache.get(SECURITY_LOG_CHANNEL_ID);
     if (sl) {
-      const ownerRole = guild.roles.cache.get(OWNER_ROLE_ID);
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`bot_accept_${member.id}`).setLabel("✅ Accept Bot").setStyle(ButtonStyle.Success),
         new ButtonBuilder().setCustomId(`bot_deny_${member.id}`).setLabel("❌ Deny Bot (Kick)").setStyle(ButtonStyle.Danger),
       );
-      const msg = await sl.send({ content: ownerRole?.toString() ?? null, embeds: [e], components: [row] });
+      const msg = await sl.send({ embeds: [e], components: [row] });
       pendingBots[member.id] = msg.id;
       logEvent("bot_join", { bot: member.user.tag, id: member.id, verified: isVerified });
     }
@@ -224,7 +228,7 @@ client.on("guildMemberAdd", async member => {
 });
 
 // ══════════════════════════════════════════════════════════════
-//  MESSAGE HANDLER — Token / Link / Spam
+//  MESSAGE HANDLER — Token / Link / Spam + Commands
 // ══════════════════════════════════════════════════════════════
 client.on("messageCreate", async message => {
   if (!message.guild) return;
@@ -258,9 +262,13 @@ client.on("messageCreate", async message => {
   // ── Link detection ────────────────────────────────────────
   if (!author.bot && moduleEnabled("link") && config.link_filter && URL_PATTERN.test(message.content)) {
     URL_PATTERN.lastIndex = 0;
-    const exempt = [FOUNDER_ROLE_ID];
-    const isEx   = exempt.some(r => member?.roles.cache.has(r));
-    if (!isEx && !member?.permissions.has(PermissionsBitField.Flags.Administrator)) {
+
+    // Founder + Administrator + link-whitelisted users → επιτρέπεται
+    const isEx = isFounder(member) ||
+                 member?.permissions.has(PermissionsBitField.Flags.Administrator) ||
+                 isLinkWhitelisted(author.id);
+
+    if (!isEx) {
       await message.delete().catch(() => {});
       await member?.timeout(config.link_timeout_mins * 60 * 1000, "Link detected").catch(() => {});
       const e = new EmbedBuilder()
@@ -309,36 +317,117 @@ client.on("messageCreate", async message => {
     }
   }
 
-  // ── Commands ──────────────────────────────────────────────
+  // ── Commands — μόνο αν αρχίζει με ! ──────────────────────
   if (!message.content.startsWith("!")) return;
+
+  // Link-whitelisted users: ΔΕΝ μπορούν να τρέχουν κανένα command
+  if (isLinkWhitelisted(author.id) && !isFounder(member)) {
+    return; // σιωπηλό block — δεν κάνουν τίποτα
+  }
+
   const args    = message.content.slice(1).trim().split(/ +/);
   const command = args.shift().toLowerCase();
 
-  // ── CEO ONLY ─────────────────────────────────────────────
-  if (!isFounder(member)) {
-    if (["secpanel","secconfig","secdisable","secenable","secstatus","seclogs","secwhitelist","secunwhitelist"].includes(command)) {
-      return message.reply("❌ FOUNDER only.");
-    }
-    return;
+  // Μόνο Founder επιτρέπεται για security commands
+  const SEC_COMMANDS = ["secpanel","secconfig","secdisable","secenable","secstatus",
+                        "seclogs","secwhitelist","secunwhitelist","sechelp",
+                        "linkwhitelist","linkunwhitelist","linkwhitelistshow"];
+  if (SEC_COMMANDS.includes(command) && !isFounder(member)) {
+    return message.reply("❌ FOUNDER only.");
   }
 
   // ────────────────────────────────────────────────────────
-  //  !secpanel  —  Αποστολή CEO Security Panel
+  //  !linkwhitelist @user  —  Προσθήκη user στο link whitelist
+  // ────────────────────────────────────────────────────────
+  if (command === "linkwhitelist") {
+    const target = message.mentions.users.first();
+    if (!target) return message.reply("Usage: `!linkwhitelist @user`");
+
+    if (!config.whitelisted_users.includes(target.id)) {
+      config.whitelisted_users.push(target.id);
+      saveConfig();
+    }
+
+    const e = new EmbedBuilder()
+      .setTitle("🔗 Link Whitelist — Added")
+      .setDescription(`${target} μπορεί τώρα να στέλνει links.\n⚠️ **Δεν μπορεί να τρέχει commands.**`)
+      .setColor(0x00ff00)
+      .setThumbnail(target.displayAvatarURL())
+      .addFields(
+        { name: "👤 User",       value: `${target} (\`${target.id}\`)`, inline: true },
+        { name: "👑 Added by",   value: `${author}`,                    inline: true },
+      )
+      .setFooter({ text: `${SERVER_NAME} • Link Whitelist` })
+      .setTimestamp();
+    return message.reply({ embeds: [e] });
+  }
+
+  // ────────────────────────────────────────────────────────
+  //  !linkunwhitelist @user  —  Αφαίρεση από link whitelist
+  // ────────────────────────────────────────────────────────
+  if (command === "linkunwhitelist") {
+    const target = message.mentions.users.first();
+    if (!target) return message.reply("Usage: `!linkunwhitelist @user`");
+
+    config.whitelisted_users = config.whitelisted_users.filter(id => id !== target.id);
+    saveConfig();
+
+    const e = new EmbedBuilder()
+      .setTitle("🔗 Link Whitelist — Removed")
+      .setDescription(`${target} αφαιρέθηκε από το link whitelist.\nΤα links του/της θα διαγράφονται πλέον.`)
+      .setColor(0xff0000)
+      .setThumbnail(target.displayAvatarURL())
+      .addFields(
+        { name: "👤 User",        value: `${target} (\`${target.id}\`)`, inline: true },
+        { name: "👑 Removed by",  value: `${author}`,                    inline: true },
+      )
+      .setFooter({ text: `${SERVER_NAME} • Link Whitelist` })
+      .setTimestamp();
+    return message.reply({ embeds: [e] });
+  }
+
+  // ────────────────────────────────────────────────────────
+  //  !linkwhitelistshow  —  Λίστα με όλους τους whitelisted users
+  // ────────────────────────────────────────────────────────
+  if (command === "linkwhitelistshow") {
+    const list = config.whitelisted_users || [];
+    if (!list.length) return message.reply("📋 Κανένας user δεν είναι στο link whitelist.");
+
+    const guild = message.guild;
+    const lines = list.map(id => {
+      const m = guild.members.cache.get(id);
+      return `• ${m ? `${m} (${m.user.tag})` : `Unknown (\`${id}\`)`}`;
+    }).join("\n");
+
+    const e = new EmbedBuilder()
+      .setTitle(`🔗 Link Whitelist (${list.length})`)
+      .setDescription(lines)
+      .setDescription(`${lines}\n\n⚠️ Αυτοί οι users μπορούν να στέλνουν links αλλά **δεν μπορούν να τρέχουν commands**.`)
+      .setColor(0x5865f2)
+      .setFooter({ text: `${SERVER_NAME} • Link Whitelist` })
+      .setTimestamp();
+    return message.reply({ embeds: [e] });
+  }
+
+  // ────────────────────────────────────────────────────────
+  //  !secpanel
   // ────────────────────────────────────────────────────────
   if (command === "secpanel") {
     const modules = [
-      { name: "🛡️ ALT Detection",     key: "alt",           desc: "Auto-detect & kick alt accounts" },
-      { name: "🔗 Link Filter",        key: "link",          desc: "Delete links & timeout senders"  },
-      { name: "🔑 Token Filter",       key: "token",         desc: "Detect & delete bot tokens"      },
-      { name: "🚫 Spam Filter",        key: "spam",          desc: "Timeout spammers automatically"  },
-      { name: "⚡ Mass Action Guard",  key: "mass_action",   desc: "Detect mass bans/kicks"          },
-      { name: "🤖 Bot Verification",   key: "bot_verify",    desc: "Quarantine bots on join"         },
+      { name: "🛡️ ALT Detection",    key: "alt",         desc: "Auto-detect & kick alt accounts" },
+      { name: "🔗 Link Filter",       key: "link",        desc: "Delete links & timeout senders"  },
+      { name: "🔑 Token Filter",      key: "token",       desc: "Detect & delete bot tokens"      },
+      { name: "🚫 Spam Filter",       key: "spam",        desc: "Timeout spammers automatically"  },
+      { name: "⚡ Mass Action Guard", key: "mass_action", desc: "Detect mass bans/kicks"          },
+      { name: "🤖 Bot Verification",  key: "bot_verify",  desc: "Quarantine bots on join"         },
     ];
 
     const statusLines = modules.map(m => {
       const on = moduleEnabled(m.key);
       return `${on ? "✅" : "❌"} **${m.name}** — ${m.desc}`;
     }).join("\n");
+
+    const linkWlCount = config.whitelisted_users?.length || 0;
 
     const e = new EmbedBuilder()
       .setTitle("🔒 Security Control Panel")
@@ -352,7 +441,8 @@ client.on("messageCreate", async message => {
         `🔗 Link timeout: **${config.link_timeout_mins} min**\n` +
         `🚫 Spam threshold: **${config.spam_threshold} msgs / ${config.spam_window_secs}s**\n` +
         `⏳ Spam timeout: **${config.spam_timeout_mins} min**\n` +
-        `⚡ Mass action limit: **${config.mass_action_limit} in ${config.mass_action_window}s**`
+        `⚡ Mass action limit: **${config.mass_action_limit} in ${config.mass_action_window}s**\n` +
+        `🔗 Link whitelisted users: **${linkWlCount}**`
       )
       .setColor(0x8B0000)
       .setThumbnail(SERVER_THUMBNAIL_URL)
@@ -404,7 +494,7 @@ client.on("messageCreate", async message => {
 
     if (!key) {
       const lines = Object.entries(config)
-        .filter(([k]) => k !== "whitelisted_bots" && k !== "disabled_modules")
+        .filter(([k]) => k !== "whitelisted_bots" && k !== "disabled_modules" && k !== "whitelisted_users")
         .map(([k, v]) => `\`${k}\` = **${v}**`)
         .join("\n");
       return message.reply(`📋 **Current Config:**\n${lines}\n\nUsage: \`!secconfig <key> <value>\``);
@@ -417,15 +507,12 @@ client.on("messageCreate", async message => {
   }
 
   // ────────────────────────────────────────────────────────
-  //  !secdisable <module>  /  !secenable <module>
+  //  !secdisable / !secenable
   // ────────────────────────────────────────────────────────
   if (command === "secdisable") {
     const mod = args[0];
     if (!mod) return message.reply("Usage: `!secdisable <module>`\nModules: `alt` `link` `token` `spam` `mass_action` `bot_verify`");
-    if (!config.disabled_modules.includes(mod)) {
-      config.disabled_modules.push(mod);
-      saveConfig();
-    }
+    if (!config.disabled_modules.includes(mod)) { config.disabled_modules.push(mod); saveConfig(); }
     return message.reply(`🔴 Module **${mod}** disabled.`);
   }
 
@@ -446,14 +533,15 @@ client.on("messageCreate", async message => {
     const e = new EmbedBuilder()
       .setTitle("📊 Security Status").setColor(0x5865f2)
       .addFields(
-        { name: "🔌 Modules",        value: lines, inline: false },
-        { name: "📅 Alt threshold",  value: `${config.alt_age_days} days`, inline: true },
-        { name: "🦵 Alt auto-kick",  value: config.alt_auto_kick ? "✅" : "❌", inline: true },
-        { name: "🔗 Link timeout",   value: `${config.link_timeout_mins} min`, inline: true },
-        { name: "🚫 Spam threshold", value: `${config.spam_threshold} / ${config.spam_window_secs}s`, inline: true },
-        { name: "⏳ Spam timeout",   value: `${config.spam_timeout_mins} min`, inline: true },
-        { name: "⚡ Mass limit",     value: `${config.mass_action_limit} / ${config.mass_action_window}s`, inline: true },
-        { name: "🤖 Whitelisted bots", value: config.whitelisted_bots?.length > 0 ? config.whitelisted_bots.join(", ") : "None", inline: false },
+        { name: "🔌 Modules",         value: lines, inline: false },
+        { name: "📅 Alt threshold",   value: `${config.alt_age_days} days`, inline: true },
+        { name: "🦵 Alt auto-kick",   value: config.alt_auto_kick ? "✅" : "❌", inline: true },
+        { name: "🔗 Link timeout",    value: `${config.link_timeout_mins} min`, inline: true },
+        { name: "🚫 Spam threshold",  value: `${config.spam_threshold} / ${config.spam_window_secs}s`, inline: true },
+        { name: "⏳ Spam timeout",    value: `${config.spam_timeout_mins} min`, inline: true },
+        { name: "⚡ Mass limit",      value: `${config.mass_action_limit} / ${config.mass_action_window}s`, inline: true },
+        { name: "🤖 Whitelisted bots",  value: config.whitelisted_bots?.length > 0 ? config.whitelisted_bots.join(", ") : "None", inline: false },
+        { name: "🔗 Link whitelist users", value: config.whitelisted_users?.length > 0 ? `${config.whitelisted_users.length} users (use \`!linkwhitelistshow\`)` : "None", inline: false },
       )
       .setFooter({ text: `${SERVER_NAME} • Security Status` })
       .setTimestamp();
@@ -470,7 +558,6 @@ client.on("messageCreate", async message => {
 
     const typeEmoji = { token_detected: "🔑", link_detected: "🔗", spam_detected: "🚫", alt_detected: "🚨", bot_join: "🤖", mass_action: "⚡" };
     const lines = events.map(ev => {
-      const d = new Date(ev.ts);
       const ts = `<t:${Math.floor(ev.ts / 1000)}:R>`;
       return `${typeEmoji[ev.type] || "📌"} **${ev.type}** — ${ev.user || ev.bot || "?"} ${ts}`;
     }).join("\n");
@@ -485,16 +572,13 @@ client.on("messageCreate", async message => {
   }
 
   // ────────────────────────────────────────────────────────
-  //  !secwhitelist <botId>  /  !secunwhitelist <botId>
+  //  !secwhitelist / !secunwhitelist (bots)
   // ────────────────────────────────────────────────────────
   if (command === "secwhitelist") {
     const id = args[0];
     if (!id) return message.reply("Usage: `!secwhitelist <botId>`");
     if (!config.whitelisted_bots) config.whitelisted_bots = [];
-    if (!config.whitelisted_bots.includes(id)) {
-      config.whitelisted_bots.push(id);
-      saveConfig();
-    }
+    if (!config.whitelisted_bots.includes(id)) { config.whitelisted_bots.push(id); saveConfig(); }
     return message.reply(`✅ Bot \`${id}\` whitelisted — won't require verification.`);
   }
 
@@ -510,33 +594,32 @@ client.on("messageCreate", async message => {
   //  !sechelp
   // ────────────────────────────────────────────────────────
   if (command === "sechelp") {
-    if (!isfounder(member)) return;
     const e = new EmbedBuilder()
       .setTitle(`🔒 ${SERVER_NAME} — Security Bot Help`).setColor(0x8B0000)
       .setThumbnail(SERVER_THUMBNAIL_URL)
-      
       .addFields(
         { name: "📋 Panels & Status", value:
           "`!secpanel` — Interactive FOUNDER security panel\n" +
           "`!secstatus` — Quick module & config overview\n" +
           "`!seclogs [n]` — Show last n security events", inline: false },
-          
         { name: "⚙️ Configuration", value:
           "`!secconfig` — Show all settings\n" +
           "`!secconfig <key> <value>` — Change a setting\n" +
           "Keys: `alt_age_days` `alt_auto_kick` `link_filter` `token_filter`\n" +
           "`spam_filter` `spam_threshold` `spam_window_secs` `spam_timeout_mins`\n" +
           "`link_timeout_mins` `mass_action_limit` `mass_action_window`", inline: false },
-        
         { name: "🔌 Modules", value:
           "`!secenable <module>` — Enable a module\n" +
           "`!secdisable <module>` — Disable a module\n" +
           "Modules: `alt` `link` `token` `spam` `mass_action` `bot_verify`", inline: false },
-
-    
         { name: "🤖 Bot Whitelist", value:
           "`!secwhitelist <botId>` — Skip verification for bot\n" +
-          "`!secunwhitelist <botId>` — Remove from whitelist", inline: false },
+          "`!secunwhitelist <botId>` — Remove bot from whitelist", inline: false },
+        { name: "🔗 Link Whitelist (Users)", value:
+          "`!linkwhitelist @user` — Επιτρέπει links στον user\n" +
+          "`!linkunwhitelist @user` — Αφαιρεί το δικαίωμα\n" +
+          "`!linkwhitelistshow` — Λίστα με όλους τους whitelisted users\n" +
+          "⚠️ Οι whitelisted users **δεν μπορούν να τρέχουν commands**.", inline: false },
       )
       .setFooter({ text: `${SERVER_NAME} • FOUNDER Only` })
       .setTimestamp();
@@ -588,7 +671,7 @@ client.on("interactionCreate", async interaction => {
       return interaction.reply({ content: "❌ Bot denied and kicked.", ephemeral: true });
     }
 
-    // ── Security Panel Buttons (CEO only) ─────────────────
+    // ── Security Panel Buttons (Founder only) ─────────────
     if (!isFounder(member)) return interaction.reply({ content: "❌ FOUNDER only.", ephemeral: true });
 
     const toggleMap = {
@@ -624,12 +707,13 @@ client.on("interactionCreate", async interaction => {
       const e = new EmbedBuilder()
         .setTitle("📊 Security Status").setColor(0x5865f2)
         .addFields(
-          { name: "🔌 Modules", value: lines, inline: false },
+          { name: "🔌 Modules",    value: lines, inline: false },
           { name: "📅 Alt threshold", value: `${config.alt_age_days} days`, inline: true },
-          { name: "🦵 Auto-kick", value: config.alt_auto_kick ? "✅" : "❌", inline: true },
+          { name: "🦵 Auto-kick",  value: config.alt_auto_kick ? "✅" : "❌", inline: true },
           { name: "🔗 Link timeout", value: `${config.link_timeout_mins} min`, inline: true },
-          { name: "🚫 Spam", value: `${config.spam_threshold}/${config.spam_window_secs}s → ${config.spam_timeout_mins}min`, inline: true },
+          { name: "🚫 Spam",       value: `${config.spam_threshold}/${config.spam_window_secs}s → ${config.spam_timeout_mins}min`, inline: true },
           { name: "⚡ Mass limit", value: `${config.mass_action_limit}/${config.mass_action_window}s`, inline: true },
+          { name: "🔗 Link WL users", value: String(config.whitelisted_users?.length || 0), inline: true },
         )
         .setFooter({ text: `${SERVER_NAME} • Security Status` })
         .setTimestamp();
