@@ -1,4 +1,4 @@
-console.log(">>> PANAMERA SECURITY BOT LOADED <<<");
+console.log(">>> VISION SECURITY BOT LOADED <<<");
 
 const {
   Client, GatewayIntentBits, Partials, Collection,
@@ -12,7 +12,7 @@ const fs = require("fs");
 //  KEEP ALIVE (fake port για Render)
 // ══════════════════════════════════════════════════════════════
 const app = express();
-app.get("/", (_, res) => res.send("🔒 Panamera Security Bot — Online"));
+app.get("/", (_, res) => res.send("🔒 Vision Security Bot — Online"));
 app.get("/health", (_, res) => res.json({ status: "ok", uptime: process.uptime() }));
 app.listen(10000, "0.0.0.0", () => console.log("Keep-alive on :10000"));
 
@@ -40,11 +40,11 @@ const client = new Client({
 // ══════════════════════════════════════════════════════════════
 //  ROLE / CHANNEL IDs
 // ══════════════════════════════════════════════════════════════
-const FOUNDER_ROLE_ID         = process.env.FOUNDER_ROLE_ID || "1516805388647792695";
+const FOUNDER_ROLE_ID         = process.env.FOUNDER_ROLE_ID || "1518404419396440146";
 const SECURITY_LOG_CHANNEL_ID = process.env.SECURITY_LOG    || "1516805389264355481";
 
-const SERVER_NAME          = "Panamera Roleplay";
-const SERVER_THUMBNAIL_URL = "https://imgur.com/0ee79c62-33a5-43dc-8fbd-e7fa39c82af1";
+const SERVER_NAME          = "Vision Roleplay";
+const SERVER_THUMBNAIL_URL = "https://i.imgur.com/8OpbuQJ.gif";
 
 // ══════════════════════════════════════════════════════════════
 //  DATA FILES
